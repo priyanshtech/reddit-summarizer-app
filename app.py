@@ -1,4 +1,4 @@
-# app.py (Final Clean Version)
+# app.py (Final Robust Version with Startup Checks)
 
 import os
 from flask import Flask, render_template, request, jsonify
@@ -6,38 +6,51 @@ import praw
 from prawcore.exceptions import NotFound, PrawcoreException
 import requests
 
-# --- Securely get credentials from environment variables ---
+# --- Load credentials from environment variables ---
 CLIENT_ID = os.getenv("CLIENT_ID")
 CLIENT_SECRET = os.getenv("CLIENT_SECRET")
 USER_AGENT = os.getenv("USER_AGENT")
 OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY")
 
-# --- Initialize the Flask App ---
+# =========================================================
+#  VVV NEW BULLETPROOF CHECK VVV
+# =========================================================
+# This code runs only ONCE when the server starts. It will immediately tell us
+# in the logs if a key is missing from the Render environment.
+if not CLIENT_ID or not CLIENT_SECRET or not USER_AGENT or not OPENROUTER_API_KEY:
+    # We will log the error and then stop the application from starting if a key is missing.
+    missing_keys = []
+    if not CLIENT_ID: missing_keys.append("CLIENT_ID")
+    if not CLIENT_SECRET: missing_keys.append("CLIENT_SECRET")
+    if not USER_AGENT: missing_keys.append("USER_AGENT")
+    if not OPENROUTER_API_KEY: missing_keys.append("OPENROUTER_API_KEY")
+    
+    # This error will be VERY visible in the Render deploy logs.
+    raise ValueError(f"FATAL STARTUP ERROR: The following required environment variables are missing: {', '.join(missing_keys)}")
+# =========================================================
+
 app = Flask(__name__)
 
-# --- Helper Functions (Backend Logic) ---
+# --- (The rest of your code is unchanged, I'm including it all for completeness) ---
 
 def fetch_user_comments(username, limit=100):
+    # We can remove the check from here because we do it on startup now.
     try:
         reddit = praw.Reddit(client_id=CLIENT_ID, client_secret=CLIENT_SECRET, user_agent=USER_AGENT)
         user = reddit.redditor(username)
-        # Accessing an attribute is the best way to check if a user exists
         _ = user.created_utc
         return [comment.body for comment in user.comments.new(limit=limit)]
     except NotFound:
         raise ValueError(f"Reddit user '{username}' not found.")
     except PrawcoreException as e:
-        # This is the most likely error for bad credentials
-        raise ValueError(f"Could not connect to Reddit. This is likely due to an invalid CLIENT_ID or CLIENT_SECRET. Details: {e}")
+        raise ValueError(f"Could not connect to Reddit (401 Unauthorized). Please check that CLIENT_ID and CLIENT_SECRET environment variables on the server are correct. Details: {e}")
     except Exception as e:
         raise ConnectionError(f"An unexpected error occurred while fetching comments: {e}")
 
+# ... (The rest of the functions and routes are identical to the previous version) ...
+
 def get_ai_summary(text_to_summarize, user_prompt):
     try:
-        # A check to make sure the key was loaded from the environment
-        if not OPENROUTER_API_KEY:
-            raise ValueError("The server's AI API Key is not configured.")
-
         api_url = "https://openrouter.ai/api/v1/chat/completions"
         headers = {"Authorization": f"Bearer {OPENROUTER_API_KEY}", "Content-Type": "application/json"}
         data_payload = {
@@ -48,18 +61,15 @@ def get_ai_summary(text_to_summarize, user_prompt):
             ]
         }
         response = requests.post(api_url, headers=headers, json=data_payload, timeout=90)
-        response.raise_for_status() # This will raise an error for HTTP codes 4xx or 5xx
+        response.raise_for_status()
         summary = response.json()['choices'][0]['message']['content']
         return summary
     except requests.exceptions.HTTPError as e:
-        # Give a more specific error for bad API keys
         if e.response.status_code == 401:
-            raise ValueError("Authentication with AI API failed. The server's API Key is invalid or has insufficient credits.")
+            raise ValueError("Authentication with AI API failed. The server's OPENROUTER_API_KEY is invalid or has insufficient credits.")
         raise ConnectionError(f"The AI API returned an error: {e.response.status_code} {e.response.text}")
     except Exception as e:
         raise ConnectionError(f"An unexpected error occurred while contacting the AI API: {e}")
-
-# --- API Endpoints ---
 
 @app.route('/')
 def index():
@@ -71,11 +81,9 @@ def handle_fetch_comments():
         username = request.json.get('username')
         if not username:
             raise ValueError("Reddit username is required.")
-        
         comments = fetch_user_comments(username)
         if not comments:
             return jsonify({'error': 'This user has no recent comments to analyze.'}), 404
-        
         full_text = "\n\n---\n\n".join(comments)
         return jsonify({'comments_text': full_text, 'comment_count': len(comments)})
     except (ValueError, ConnectionError) as e:
@@ -87,12 +95,10 @@ def handle_get_summary():
         data = request.json
         comments_text = data.get('comments_text')
         prompt = data.get('prompt')
-
         summary = get_ai_summary(comments_text, prompt)
         return jsonify({'summary': summary})
     except (ValueError, ConnectionError) as e:
         return jsonify({'error': str(e)}), 400
 
-# --- Start the Server ---
 if __name__ == '__main__':
     app.run(debug=True)
