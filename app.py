@@ -33,7 +33,7 @@ app = Flask(__name__)
 
 # --- (The rest of your code is unchanged, I'm including it all for completeness) ---
 
-def fetch_user_comments(username, limit=1000                                                                                                                                                                                            ):
+def fetch_user_comments(username, limit=1000):
     # We can remove the check from here because we do it on startup now.
     try:
         reddit = praw.Reddit(client_id=CLIENT_ID, client_secret=CLIENT_SECRET, user_agent=USER_AGENT)
