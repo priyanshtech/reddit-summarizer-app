@@ -17,7 +17,7 @@ app = Flask(__name__)
 
 # --- Helper Functions (Backend Logic) ---
 
-def fetch_user_comments(username, limit=150):
+def fetch_user_comments(username, limit=1000):
     """Fetches comments from a Reddit user using safe, read-only mode."""
     try:
         if not CLIENT_ID or not CLIENT_SECRET:
