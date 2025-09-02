@@ -1,0 +1,130 @@
+<!-- templates/index.html (Professional UI, simplified for the user) -->
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Reddit AI Summarizer</title>
+    <!-- 1. Include the modern CSS framework: Pico.css -->
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@picocss/pico@2/css/pico.min.css"/>
+    
+    <style>
+        /* A little custom styling to fine-tune the look */
+        body { padding: 2rem; }
+        main.container { max-width: 900px; }
+        header { text-align: center; margin-bottom: 2rem; }
+        #result-card { margin-top: 2rem; }
+        /* A better-looking spinner */
+        [aria-busy="true"] {
+            display: inline-block;
+            width: 1.5rem;
+            height: 1.5rem;
+            margin-right: 0.5rem;
+        }
+    </style>
+</head>
+<body>
+    <main class="container">
+        <header>
+            <h1>🤖 Reddit User AI Summarizer</h1>
+            <p>Enter a Reddit username and a prompt to generate an AI-powered personality analysis.</p>
+        </header>
+
+        <form id="analyzer-form">
+            <!-- Username Input -->
+            <label for="username">Reddit Username</label>
+            <input type="text" id="username" name="username" placeholder="e.g., spez" required>
+            
+            <!-- Prompt Text Area -->
+            <label for="prompt">Your AI Prompt</label>
+            <textarea id="prompt" name="prompt" rows="5" required>Based on the user's recent comments, provide a concise summary of their personality, communication style, and likely interests.</textarea>
+
+            <!-- The Submit Button - will show loading state -->
+            <button type="submit" id="submit-button">Generate Analysis</button>
+        </form>
+
+        <!-- A dedicated section for status and results -->
+        <article id="result-card" style="display:none;">
+            <header id="status-message"></header>
+            <pre id="result-text" style="white-space: pre-wrap; word-wrap: break-word;"></pre>
+        </article>
+    </main>
+
+    <script>
+        // Frontend JavaScript for interactivity
+        const form = document.getElementById('analyzer-form');
+        const submitButton = document.getElementById('submit-button');
+        const resultCard = document.getElementById('result-card');
+        const statusMessage = document.getElementById('status-message');
+        const resultText = document.getElementById('result-text');
+
+        form.addEventListener('submit', async function (event) {
+            event.preventDefault();
+
+            // --- 1. Get user input ---
+            const username = document.getElementById('username').value;
+            const prompt = document.getElementById('prompt').value;
+
+            // --- 2. Setup UI for loading state ---
+            submitButton.setAttribute('aria-busy', 'true');
+            submitButton.disabled = true;
+            resultCard.style.display = 'block';
+            statusMessage.innerHTML = '';
+            resultText.textContent = '';
+            
+            try {
+                // --- 3. Step-by-step API calls ---
+                updateStatus('🔍 Fetching comments for <strong>' + username + '</strong>...');
+                
+                // Fetch comments
+                const commentsResponse = await postData('/fetch_comments', { username });
+                if (commentsResponse.error) throw new Error(commentsResponse.error);
+
+                updateStatus(`✅ Found <strong>${commentsResponse.comment_count}</strong> comments. Connecting to AI...`);
+
+                // Get summary
+                const summaryPayload = { 
+                    comments_text: commentsResponse.comments_text, 
+                    prompt: prompt,
+                };
+                const summaryResponse = await postData('/get_summary', summaryPayload);
+                if (summaryResponse.error) throw new Error(summaryResponse.error);
+                
+                // --- 4. Display success result ---
+                resultCard.className = 'pico-color-green-150';
+                statusMessage.innerHTML = '<strong>Analysis Complete:</strong>';
+                resultText.textContent = summaryResponse.summary;
+
+            } catch (error) {
+                // --- 5. Display error result ---
+                resultCard.className = 'pico-color-red-150';
+                statusMessage.innerHTML = '<strong>An Error Occurred:</strong>';
+                resultText.textContent = error.message;
+            } finally {
+                // --- 6. Reset UI after completion ---
+                submitButton.removeAttribute('aria-busy');
+                submitButton.disabled = false;
+            }
+        });
+
+        // Helper function for API calls
+        async function postData(url = '', data = {}) {
+            const response = await fetch(url, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(data)
+            });
+            if (!response.ok) {
+                const errorData = await response.json();
+                throw new Error(errorData.error || 'Server responded with an error');
+            }
+            return response.json();
+        }
+        
+        // Helper function for status updates
+        function updateStatus(message) {
+            statusMessage.innerHTML = `<span aria-busy="true"></span> ${message}`;
+        }
+    </script>
+</body>
+</html>
